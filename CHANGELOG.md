@@ -2,6 +2,7 @@
 
 ## 1.0.0 (2026-11-03)
 
+- Google revocation ("Delete all") verified against a real account through the tool.
 - New providers: Figma (Settings → Security → Connected apps, verified live), Vercel (team integrations, list verified live, removal flow from Vercel's docs) and Slack (workspace installed apps, listed read-only).
 - Recipe engine: link patterns for team-scoped URLs, rows derived from action buttons, open-by-URL revoke flows, workspace subdomains as the same site, sign-in that survives the original tab closing.
 - Sessions: every launch uses the OS keychain consistently (mixing modes loses stored sessions).

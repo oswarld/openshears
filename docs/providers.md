@@ -33,7 +33,7 @@ To re-verify after a GitHub UI change: run `openshears login github`, then `open
 
 Page: `https://myaccount.google.com/linkedapps` ("Linked apps"), read in three filter views: `?filters=3` apps with access to your Google Account data, `?filters=4` apps using Sign in with Google, `?filters=2` linked accounts. Consumer accounts have no API; the Directory `tokens` API is for Workspace admins.
 
-Checked live on 2026-11-03: rows are relative links `linkedapps/overview/<token>` whose token changes on every page load, so connections are identified by name (`idFromName`, duplicates get `-2`, `-3`). An app present in several views is listed once. The detail page renders only when reached by clicking the list link; it offers **Delete all** ("Remove all links and stop sharing your Google Account data with <app>") and a confirmation dialog. Audit verified live (30 apps with data access, 92 sign-in apps on the test account); the Delete all confirmation has only been exercised against the local fixture.
+Checked live on 2026-11-03: rows are relative links `linkedapps/overview/<token>` whose token changes on every page load, so connections are identified by name (`idFromName`, duplicates get `-2`, `-3`). An app present in several views is listed once. The detail page renders only when reached by clicking the list link; it offers **Delete all** ("Remove all links and stop sharing your Google Account data with <app>") and a confirmation dialog. Audit verified live (30 apps with data access, 92 sign-in apps on the test account). Revocation verified live on 2026-11-03: `prune google --revoke "<app>"` opened the app from the list, clicked **Delete all**, confirmed, and the re-read list no longer contained the app.
 
 ## Notion (`notion`)
 
