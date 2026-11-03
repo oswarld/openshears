@@ -1,77 +1,67 @@
-# 🦞 OpenShears
+# ✂️ OpenShears
 
-Inspect and remove local OpenClaw installations on **macOS and Linux/WSL with a working user service manager**. OpenShears works independently of the OpenClaw CLI, including when that CLI is already missing or cannot start.
-
-Compatibility is based on the official [OpenClaw v2026.9.3 release](https://github.com/openclaw/openclaw/releases/tag/v2026.9.3) and its [uninstall instructions](https://github.com/openclaw/openclaw/blob/v2026.9.3/docs/install/uninstall.md). OpenClaw currently uses date-based release versions; this project does not assume a `2.0` package version.
-
-## Preview first
-
-Requires Node.js 20 or newer to run the CLI. Preview commands never stop services, signal processes, uninstall packages or delete files:
+Too many agents, too many grants. OpenAI dots, Grok bots, Gemini Spark, Claude Duet, Meta Muse, Instinct, Pickle: every one of them asks for your GitHub, your calendar, your files. OpenShears lets you **audit** which apps and agents still hold access to your accounts, decide which ones you actually use, and **revoke the rest in one pass** instead of clicking through every settings page.
 
 ```bash
-npx openshears --dry-run
-npx openshears --json
+npx openshears audit                       # what is connected, read-only
+npx openshears prune github --keep "Claude Duet"   # revoke every other GitHub app
 ```
 
-`--json` emits a JSON plan without banners or progress output and always implies a dry run, including when combined with `--yes`. Process arguments and configuration contents are omitted because they can contain credentials. A blocked scan exits with status 1 and still shows the available plan.
+OpenShears is named after the shears used to take a lobster apart. It started as the [OpenClaw](https://github.com/openclaw/openclaw) uninstaller, which still ships as `openshears openclaw`.
 
-## Remove OpenClaw
+## How it works
+
+Most services offer no API for *you* to list or revoke the third-party apps you authorized; GitHub removed its OAuth Authorizations API in 2020 and only shows grants on the settings pages. OpenShears therefore drives those same pages in a browser you already have installed (Google Chrome or Microsoft Edge, no download) using a **dedicated profile** under `~/.openshears/browser`. You sign in once in a visible window; later runs reuse that session headlessly. OpenShears never reads what you type, never stores passwords and never touches your everyday browser profile.
+
+Requires Node.js 20 or newer and Chrome or Edge for browser-backed providers. Set `OPENSHEARS_BROWSER` to another Chromium executable if needed.
+
+## Commands
+
+| Command                                       | What it does                                                                                  |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `openshears audit [provider...]`              | List connections for every provider (or the named ones). Read-only. `--json` for a report.     |
+| `openshears prune <provider> --keep <name...>`| Revoke every revocable connection that does not match a kept name. Shows the plan and asks.    |
+| `openshears prune <provider> --revoke <name...>` | Revoke only the matching connections.                                                       |
+| `openshears prune <provider>`                 | Interactive: pick the connections to keep from a checklist (all kept by default).              |
+| `openshears login <provider>`                 | Open the browser profile and sign in.                                                          |
+| `openshears logout`                           | Delete the stored browser sessions.                                                            |
+| `openshears providers`                        | List providers.                                                                                |
+| `openshears inspect <provider>`               | Dump a provider's pages (headings, links, buttons) read-only, to write or repair a recipe.      |
+| `openshears openclaw`                         | The original OpenClaw uninstaller (see below).                                                 |
+
+Patterns match the connection name or id, case-insensitively, with `*` as a wildcard. A pattern that matches nothing aborts the run before anything is revoked, so a typo in `--keep` can never revoke everything.
+
+`--dry-run` and `--json` never revoke. Without a terminal, `prune` needs an explicit `--keep`/`--revoke`/`--all` and `--yes`. Ctrl-C, Escape and a negative answer cancel.
+
+Example: keep Claude Duet on GitHub and cut everything else, previewing first:
 
 ```bash
-npx openshears
+npx openshears prune github --keep "Claude Duet" --dry-run
 ```
-
-Review the listed paths, services, processes and packages before confirming. **Removal is permanent.** State directories contain credentials, sessions, memory, installed plugins and any workspaces inside those directories. Back up anything you want to keep first.
-
-The scan covers **all detected local profiles**, not only `OPENCLAW_PROFILE`. `OPENCLAW_PROFILE` adds that profile's state path to the scan. External workspaces are preserved by default. To keep all state/config/workspace data while removing the detected services and CLI packages:
 
 ```bash
-npx openshears --keep-data
+npx openshears prune github --keep "Claude Duet"
 ```
 
-Options:
+## Providers
 
-| Option                 | Behavior                                                                                            |
-| ---------------------- | --------------------------------------------------------------------------------------------------- |
-| `--dry-run`            | Show the removal plan without changes.                                                              |
-| `--json`               | Print a read-only JSON plan.                                                                        |
-| `-y`, `--yes`          | Confirm removal; required without a terminal.                                                       |
-| `--force`              | Allow SIGKILL after a verified OpenClaw process ignores SIGTERM for five seconds.                   |
-| `--include-workspaces` | Also remove configured workspaces outside state directories. Cannot be combined with `--keep-data`. |
-| `--keep-data`          | Preserve state, configuration, credentials and workspaces.                                          |
+| Provider | Covers                                                                                                     | Revoke |
+| -------- | ---------------------------------------------------------------------------------------------------------- | ------ |
+| `github` | Authorized OAuth Apps, Authorized GitHub Apps and Installed GitHub Apps under github.com settings           | OAuth apps and GitHub App authorizations. Installations are listed with a link for manual uninstall. Verified live. |
+| `google` | Linked apps: apps with access to your Google Account data (Gmail, Drive, Calendar, …), apps using Sign in with Google, linked accounts | "Delete all" per app. Audit verified live; revoke dialog verified against the fixture. |
+| `notion` | Apps connected to your Notion workspace (Settings → Connections → Connected)                               | Disconnect per app. Audit verified live (English/Korean UI); disconnect verified against the fixture. |
+| `stripe` | Installed apps and third-party platforms on your Stripe account (Settings → Installed apps)                | Revoke access per app. Live verification pending. |
+| `local`  | Credential stores and MCP configurations of agents installed on this machine (Claude, Codex, Gemini, Cursor, Windsurf, VS Code, OpenClaw, GitHub CLI) | Read-only inventory. Only MCP server *names* are read; tokens and commands are never read back. |
 
-Ctrl-C, Escape and a negative confirmation cancel removal. `--force` does not bypass confirmation, path protections or failed service checks.
+Each revocation opens the app's detail page, confirms the revoke dialog, then reloads the list to verify the app is gone. If it is still listed, the run reports a failure for that app and continues with the others.
 
-## What is detected
+GitHub's settings pages are not a stable API. The recipe uses accessible names and link structure rather than markup classes, follows pagination, and the test suite exercises it against a local stand-in site. The audit and the revoke dialog were checked against a real github.com account on 2026-11-03. See [docs/providers.md](docs/providers.md) for the verification status of each flow and how to add a provider.
 
-- State under `~/.openclaw` and the existing legacy `.clawdbot`, `.moltbot`, `.moldbot` paths.
-- Named `~/.openclaw-<profile>` directories containing `openclaw.json`, plus an explicitly selected `OPENCLAW_PROFILE` path.
-- `OPENCLAW_HOME`, `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH` and `OPENCLAW_OAUTH_DIR`, including tilde and relative paths.
-- JSON/JSON5 workspace paths in `agents.defaults.workspace`, `agents.list[].workspace` and legacy `agent.workspace`.
-- macOS gateway/profile/node LaunchAgents, registered jobs whose plist has disappeared, the OpenClaw app in `/Applications` or `~/Applications`, and `~/Library/Logs/OpenClaw`.
-- Linux systemd user gateway/profile/node units, legacy `clawdbot-gateway.service`, unit backups and drop-in directories.
-- Global `openclaw`, `clawdbot` and `moltbot` packages reported by npm, pnpm and Bun available on the current PATH.
-- Current-user OpenClaw executable/process titles and known Node/Bun entry points. Incidental mentions in editors, shell arguments and unrelated scripts are not process targets.
+## OpenClaw removal
 
-## Removal behavior and boundaries
-
-OpenShears validates paths before making changes, stops and unregisters services before removing packages or data, and verifies that matching processes have exited. Process signals use a PID whose command and start time are checked again. Service, process or package removal failures stop subsequent data deletion and return a nonzero exit status. Earlier successful changes are not rolled back.
-
-Root directories, home directories, common shared directories and the current working directory (including their ancestors) cannot be removed. A state directory used as an installer prefix containing `tools` or `lib/node_modules` blocks data deletion: shared runtimes and packages require manual inspection. Final symbolic links are only unlinked; user-created symlinks in ancestor directories block removal. Run OpenShears outside the directory you intend to remove.
-
-The scan is local and bounded. The following still need separate attention:
-
-- Native Windows Scheduled Tasks: use `openclaw uninstall` on Windows. OpenShears reports native Windows removal as unsupported; WSL uses the Linux path.
-- System services, Nix-managed installs, unrecognized custom service names and registered OpenClaw update jobs: resolve the reported blocker before retrying. OpenShears does not request sudo.
-- Source checkouts, custom installer prefixes/wrappers, shell completion/PATH edits, shared caches, Docker/Podman containers and remote gateway hosts.
-- Arbitrary custom process wrappers, other users' processes, and package installations not visible to the current package managers/PATH.
-- Config `$include` files and custom logging paths outside state: config includes are not executed or expanded, and external paths remain for manual inspection.
-
-Successful removal means the **detected artifacts** were removed. Preserved paths and reported manual checks still apply.
+`openshears openclaw` inspects and removes local OpenClaw installations on macOS and Linux/WSL. Preview with `--dry-run` or `--json`; `--keep-data` preserves state and workspaces; `--include-workspaces` also removes external workspaces. Removal is permanent and state directories contain credentials, sessions and memory. The behavior, boundaries and compatibility notes are documented in [docs/openclaw-compatibility.md](docs/openclaw-compatibility.md).
 
 ## Development
-
-Use Node.js 22.12+ (22.x), 24.x or 26+ for the current test tooling. OpenShears does not require OpenClaw's own Node runtime to inspect an installation.
 
 ```bash
 git clone https://github.com/oswarld/openshears.git
@@ -80,14 +70,14 @@ npm ci
 npm run build
 npm test
 npm run lint
-node dist/index.js --dry-run
+node dist/index.js audit local
 ```
 
-Tests use temporary directories and mocked service/package/process commands. They never uninstall a host package or signal a real OpenClaw process. See [the compatibility review notes](docs/openclaw-compatibility.md) for upstream references and validation scope.
+Tests use temporary directories, mocked providers and a local HTTP fixture that mimics GitHub's settings URLs; they never sign in to a real account or revoke anything. The fixture tests run headless Chrome when it is installed and are skipped otherwise.
 
 ## Contributing
 
-Include a regression test and an upstream reference when adding a new artifact or service identity. Keep detection read-only, preserve shared resources, and report incomplete cleanup explicitly.
+A new provider is a `WebRecipe` (list pages as link prefixes or row selectors, plus revoke steps named by accessible role and label) or a `Provider` implementation for services with a real API. Start from `openshears inspect` output of the signed-in page. Keep audits read-only, verify every revocation by re-reading the list, never log tokens or form contents, and add a fixture test.
 
 ## License
 

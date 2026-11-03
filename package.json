@@ -1,7 +1,7 @@
 {
   "name": "openshears",
-  "version": "0.1.0",
-  "description": "The OpenClaw Uninstaller",
+  "version": "0.2.0",
+  "description": "Audit the apps and AI agents connected to your accounts, keep the ones you use and revoke the rest.",
   "type": "module",
   "bin": {
     "openshears": "./dist/index.js"
@@ -22,11 +22,15 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "openclaw",
-    "uninstaller",
+    "oauth",
+    "permissions",
+    "revoke",
+    "ai-agents",
+    "github",
     "security",
-    "cli",
-    "tool"
+    "privacy",
+    "openclaw",
+    "cli"
   ],
   "author": "",
   "license": "MIT",
@@ -40,7 +44,8 @@
     "execa": "^8.0.1",
     "figlet": "^1.10.0",
     "fs-extra": "^11.2.0",
-    "json5": "^2.2.3"
+    "json5": "^2.2.3",
+    "playwright-core": "^1.64.1"
   },
   "devDependencies": {
     "@types/figlet": "^1.7.0",
@@ -52,5 +57,9 @@
     "typescript": "^5.3.3",
     "vite": "^8.2.2",
     "vitest": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oswarld/openshears.git"
   }
 }
