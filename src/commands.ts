@@ -310,7 +310,18 @@ export async function runLogin(
   const context = createContext({ ...options, headed: true }, isInteractive());
   const session = await provider.connect({ ...context, signIn: true });
   try {
-    const result = await session.audit();
+    let result;
+    try {
+      result = await session.audit();
+    } catch (error) {
+      if (error instanceof NotSignedInError)
+        throw new Error(
+          `${provider.title} sent the browser back to its sign-in page right after signing in. ` +
+            'This usually means a device verification or two-factor step was still pending, or the site refused the session. ' +
+            'Run again with OPENSHEARS_DEBUG=1 to see the navigation trace.',
+        );
+      throw error;
+    }
     console.log(
       `Signed in to ${provider.title}${result.account ? ` as ${result.account}` : ''}. ` +
         `The session is stored in ${browserProfileDir(context.home)} for later runs.`,

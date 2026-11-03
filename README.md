@@ -83,9 +83,19 @@ node dist/index.js audit local
 
 Tests use temporary directories, mocked providers and a local HTTP fixture that mimics GitHub's settings URLs; they never sign in to a real account or revoke anything. The fixture tests run headless Chrome when it is installed and are skipped otherwise.
 
-## Contributing
+## Contributing: add the services you want to cut
 
-A new provider is a `WebRecipe` (list pages as link prefixes or row selectors, plus revoke steps named by accessible role and label) or a `Provider` implementation for services with a real API. Start from `openshears inspect` output of the signed-in page. Keep audits read-only, verify every revocation by re-reading the list, never log tokens or form contents, and add a fixture test.
+Every SaaS has a "connected apps" page and almost none of them have an API for it. OpenShears covers GitHub, Google, Notion and Stripe today; **please add the services you use.** Slack, Discord, Vercel, Linear, Figma, Dropbox, Microsoft, Atlassian, Zoom, Hugging Face, X, LinkedIn and Shopify all have such a page and fit the same model.
+
+A provider is a `WebRecipe` in `src/providers/<service>.ts`: the settings page URL, how rows are found (link prefix or row selector), and the revoke clicks named by accessible role and label. No service-specific code is needed.
+
+1. Sign in once: `openshears login <service>` (or add the recipe first with just `baseUrl`, `loginPath` and `signedOutPaths`).
+2. Run `openshears inspect <service>` on the connected-apps page. It prints, read-only, the headings, links, buttons and repeated containers the recipe can hook into.
+3. Fill in `lists` and `revoke`, then verify with `openshears audit <service>` and one disposable app through `openshears prune <service> --revoke "<name>"`.
+4. Add a small fixture site under `tests/fixtures/` that mimics the page shape (see the GitHub, Google and Notion ones) and a test that audits and revokes against it.
+5. Note the verification date and any locale-specific labels in [docs/providers.md](docs/providers.md).
+
+Keep audits read-only, verify every revocation by re-reading the list, never log tokens or form contents. A pull request with a new recipe is the most useful contribution this project can get.
 
 ## License
 

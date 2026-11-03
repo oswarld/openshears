@@ -30,7 +30,14 @@ export async function launchBrowser(
   const { chromium } = await import('playwright-core');
   await fs.ensureDir(options.profileDir);
   await fs.chmod(options.profileDir, 0o700);
-  const base = { headless: options.headless, viewport: null };
+  const base = {
+    headless: options.headless,
+    viewport: null,
+    // Playwright starts Chrome with a mock keychain, which breaks passkeys and
+    // security keys backed by the OS keychain (iCloud Keychain, Touch ID).
+    // Sign-in pages need the real one.
+    ignoreDefaultArgs: ['--use-mock-keychain'],
+  };
   const executablePath = options.env.OPENSHEARS_BROWSER;
   if (executablePath) {
     return chromium.launchPersistentContext(options.profileDir, {

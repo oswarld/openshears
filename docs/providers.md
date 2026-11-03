@@ -43,7 +43,14 @@ Checked live on 2026-11-03: the sidebar workspace switcher (`.notion-sidebar-swi
 
 ## Stripe (`stripe`)
 
-Page: `https://dashboard.stripe.com/settings/apps` (Settings > Installed apps, the place Stripe support names for revoking a platform). Flow: open the app, "Revoke access" / "Uninstall", confirm. Stripe warns that disconnecting a platform can affect subscriptions it created, and Connect-controlled accounts may not be allowed to revoke. **Not verified live yet.**
+Page: `https://dashboard.stripe.com/settings/apps` ("Apps overview", **Installed** tab; the place Stripe support names for revoking a platform). Checked live on 2026-11-03: a signed-out visit redirects to `/login?redirect=…`, Google sign-in detours through accounts.google.com and returns to `/login` for the verification step, and the Installed tab shows "No apps installed yet" on the test account, so the row selector and the revoke flow could not be verified against real data. Flow from Stripe's help: open the app, "Revoke access" / "Uninstall", confirm. Stripe warns that disconnecting a platform can affect subscriptions it created, and Connect-controlled accounts may not be allowed to revoke.
+
+## Sign-in notes
+
+- Sign-in runs in OpenShears' own Chrome profile because the tool has to drive the pages; a session from your everyday browser cannot be reused (cookies never leave the browser they were created in).
+- The user's tab is never navigated during sign-in. A second tab probes whether the first list page opens without bouncing to the login page, so identity-provider detours and two-factor pages are left alone.
+- Chrome is started with its real OS keychain so passkeys and security keys backed by iCloud Keychain or Touch ID can be used. Tick "remember this device" where the site offers it; otherwise the session may end when the window closes.
+- `OPENSHEARS_DEBUG=1` prints the navigation trace (hostnames and paths only).
 
 ## This machine (`local`)
 

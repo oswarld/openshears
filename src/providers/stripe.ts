@@ -10,7 +10,7 @@ export const stripeRecipe: WebRecipe = {
     'Installed apps and third-party platforms authorized on your Stripe account',
   baseUrl: 'https://dashboard.stripe.com',
   loginPath: '/login?redirect=%2Fsettings%2Fapps',
-  signedOutPaths: ['/login', '/register'],
+  signedOutPaths: ['/login', '/register', '/auth'],
   unverified:
     'The Stripe recipe has not been checked against the live dashboard yet; compare with "openshears inspect stripe".',
   lists: [

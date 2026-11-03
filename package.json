@@ -1,10 +1,10 @@
 {
   "name": "openshears",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Audit the apps and AI agents connected to your accounts, keep the ones you use and revoke the rest.",
   "type": "module",
   "bin": {
-    "openshears": "./dist/index.js"
+    "openshears": "dist/index.js"
   },
   "files": [
     "dist",

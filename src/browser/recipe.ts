@@ -99,6 +99,21 @@ const MAX_PAGES = 25;
 const DIALOG_SELECTOR =
   'dialog[open], details-dialog, [role="dialog"], [role="alertdialog"], details[open] > :not(summary)';
 
+/** Navigation trace for recipe debugging: paths only, never query strings or page content. */
+export function debug(message: string): void {
+  if (process.env.OPENSHEARS_DEBUG)
+    process.stderr.write(`[openshears] ${message}\n`);
+}
+
+function describeUrl(url: string): string {
+  try {
+    const { hostname, pathname } = new URL(url);
+    return `${hostname}${pathname}`;
+  } catch {
+    return url;
+  }
+}
+
 export function isSignedOut(recipe: WebRecipe, url: string): boolean {
   const { pathname, hostname } = new URL(url);
   if (recipe.signedOutHosts?.includes(hostname)) return true;
@@ -132,6 +147,9 @@ async function open(recipe: WebRecipe, page: Page, path: string) {
     }
   }
   await settle(page);
+  debug(
+    `open ${describeUrl(recipe.baseUrl + path)} -> ${describeUrl(page.url())}`,
+  );
   assertSignedIn(recipe, page);
 }
 
@@ -477,8 +495,31 @@ async function readAccount(
   return (await meta?.getAttribute('content')) ?? undefined;
 }
 
+/** Check for a session in a separate tab so the user's own tab is never disturbed. */
+async function probeSignedIn(
+  recipe: WebRecipe,
+  browser: BrowserContext,
+): Promise<boolean> {
+  const probe = await browser.newPage();
+  try {
+    await probe.goto(recipe.baseUrl + recipe.lists[0].path, {
+      waitUntil: 'domcontentloaded',
+    });
+    await settle(probe);
+    debug(
+      `probe ${describeUrl(recipe.baseUrl + recipe.lists[0].path)} -> ${describeUrl(probe.url())}`,
+    );
+    return !isSignedOut(recipe, probe.url());
+  } catch {
+    return false;
+  } finally {
+    await probe.close().catch(() => undefined);
+  }
+}
+
 async function waitForSignIn(
   recipe: WebRecipe,
+  browser: BrowserContext,
   page: Page,
   log: (message: string) => void,
 ) {
@@ -486,15 +527,47 @@ async function waitForSignIn(
     waitUntil: 'domcontentloaded',
   });
   await settle(page);
-  if (!isSignedOut(recipe, page.url())) return;
-  log(
-    `Sign in to ${recipe.title} in the browser window. OpenShears waits up to five minutes and never reads what you type.`,
-  );
-  await page.waitForURL((url) => !isSignedOut(recipe, url.toString()), {
-    timeout: SIGN_IN_TIMEOUT,
-  });
-  await settle(page);
-  await open(recipe, page, recipe.lists[0].path);
+  const site = new URL(recipe.baseUrl).hostname;
+  const deadline = Date.now() + SIGN_IN_TIMEOUT;
+  let announced = false;
+  let last = '';
+  let lastProbe = 0;
+  // Leaving the login page is not proof of a session: sign-in detours through
+  // identity providers and two-factor pages. The user's tab is left alone; a
+  // second tab checks whether the first list page opens without bouncing to
+  // the login page.
+  for (;;) {
+    const current = describeUrl(page.url());
+    const changed = current !== last;
+    if (changed) {
+      last = current;
+      debug(`sign-in wait: at ${current}`);
+    }
+    const onSite =
+      new URL(page.url()).hostname === site && !isSignedOut(recipe, page.url());
+    if (onSite && (changed || Date.now() - lastProbe > 8_000)) {
+      lastProbe = Date.now();
+      if (await probeSignedIn(recipe, browser)) {
+        await open(recipe, page, recipe.lists[0].path);
+        return;
+      }
+    }
+    if (!announced) {
+      log(
+        `Sign in to ${recipe.title} in the browser window, including any verification step. OpenShears waits up to five minutes and never reads what you type.`,
+      );
+      announced = true;
+    }
+    if (Date.now() > deadline)
+      throw new Error(
+        `Timed out waiting for the ${recipe.title} sign-in to complete.`,
+      );
+    if (page.isClosed() || browser.pages().length === 0)
+      throw new Error(
+        `The browser window was closed before the ${recipe.title} sign-in finished. Run the login again and leave the window open; it closes by itself once the session is confirmed.`,
+      );
+    await page.waitForTimeout(2_000).catch(() => undefined);
+  }
 }
 
 /** Read-only dump of what a page exposes, for writing and repairing recipes. */
@@ -667,7 +740,8 @@ export function createWebProvider(recipe: WebRecipe): WebProvider {
       });
       try {
         const page = browser.pages()[0] ?? (await browser.newPage());
-        if (context.signIn) await waitForSignIn(recipe, page, context.log);
+        if (context.signIn)
+          await waitForSignIn(recipe, browser, page, context.log);
         else await open(recipe, page, recipe.lists[0].path);
         return new WebProviderSession(recipe, browser, page);
       } catch (error) {
