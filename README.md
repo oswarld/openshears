@@ -1,5 +1,7 @@
 # ✂️ OpenShears
 
+**English** · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [Français](README.fr.md) · [Deutsch](README.de.md)
+
 **Every AI agent asks for your GitHub. You said yes to all of them.**
 
 Claude, ChatGPT and Codex, Cursor, Grok, Copilot's agents, Meta's Muse, that MCP server you tried for an afternoon: each one wanted your GitHub, your Gmail, your Drive, your calendar, your Notion, your Figma. Each "Authorize" took two seconds. Nobody goes back. When I ran the first audit on my own accounts, one GitHub account was holding **45 apps** and one Google account **122 linked apps**, most of them agents and tools I had forgotten I ever connected.
