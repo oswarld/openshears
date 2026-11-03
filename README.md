@@ -11,6 +11,8 @@ npx openshears prune github --keep "Claude Duet" --dry-run # preview: everything
 npx openshears prune github --keep "Claude Duet"           # revoke, after a confirmation
 ```
 
+Until 0.2.0 reaches the npm registry, `npx github:oswarld/openshears audit local` runs the same code straight from this repository.
+
 `npx openshears audit` with no provider runs every provider and opens a sign-in window for each one you have not signed in to yet (GitHub, Google, Notion, Stripe). Audits are read-only; nothing is revoked without `prune` and a confirmation.
 
 OpenShears is named after the shears used to take a lobster apart. It started as the [OpenClaw](https://github.com/openclaw/openclaw) uninstaller, which still ships as `openshears openclaw`.
