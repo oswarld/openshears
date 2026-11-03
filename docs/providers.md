@@ -49,8 +49,20 @@ Page: `https://dashboard.stripe.com/settings/apps` ("Apps overview", **Installed
 
 - Sign-in runs in OpenShears' own Chrome profile because the tool has to drive the pages; a session from your everyday browser cannot be reused (cookies never leave the browser they were created in).
 - The user's tab is never navigated during sign-in. A second tab probes whether the first list page opens without bouncing to the login page, so identity-provider detours and two-factor pages are left alone.
-- Chrome is started with its real OS keychain so passkeys and security keys backed by iCloud Keychain or Touch ID can be used. Tick "remember this device" where the site offers it; otherwise the session may end when the window closes.
+- Chrome is started with its real OS keychain so passkeys and security keys backed by iCloud Keychain or Touch ID can be used. Chrome encrypts stored cookies with that keychain key, so every launch of the profile must use the same setting: a profile touched by a launch with Playwright's mock keychain (its default) loses all sessions. Tooling that opens `~/.openshears/browser` must go through `launchBrowser` in `src/browser/session.ts`. Tick "remember this device" where the site offers it.
 - `OPENSHEARS_DEBUG=1` prints the navigation trace (hostnames and paths only).
+
+## Figma (`figma`)
+
+Settings live in a dialog opened from the file browser's profile button (`data-testid="ProfileButton"`) → **Settings** → **Security** tab. Checked live on 2026-11-03: the tab lists active sessions, personal access tokens and **Connected apps**, each app as a name, "Connected N months ago" and a **Revoke access** button (Korean UI: 보안 / 연결된 앱 / 액세스 권한 취소). The apps have no row markup of their own, so the recipe derives rows from the revoke buttons (`anchorButton`) and targets them by position. If a stored session does not survive between runs, `audit figma` opens the sign-in window and continues in the same session. Audit verified live (four connected apps on the test account); the revoke click and its confirmation were exercised against the local fixture only.
+
+## Slack (`slack`)
+
+Page: `slack.com/apps/manage`, which redirects to `app.slack.com/apps-manage/<team id>/integrations/installed`. Checked live on 2026-11-03: each installed app is a row linking to `/apps-manage/<team>/integrations/profile/<app id>/permissions` (five apps on the test workspace, Korean UI). Removal and authorization revocation live on the app's Configuration tab (slack.com/help/articles/360003125231), which did not render in a headless session, and workspace owners can restrict who may remove apps, so installations are listed read-only. The per-user "Connected accounts" page (`<workspace>.slack.com/apps/manage/connections`) was empty on the test account and is not read yet.
+
+## Vercel (`vercel`)
+
+Page: `vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fintegrations`, Vercel's redirect helper to the current team's `/<team>/~/integrations`. Checked live on 2026-11-03: each installation is a row with an icon link and a **Manage** link to `/<team>/~/integrations/<integration>/icfg_<id>`; marketplace suggestions on the same page link without an `icfg` id and are ignored. Six installations were listed on the test team. Removal: the installation's **Settings** tab (`…/icfg_<id>/settings`) has a **Remove <integration>** button (checked live); its confirmation dialog has only been exercised against the local fixture. Sessions persist across runs.
 
 ## This machine (`local`)
 

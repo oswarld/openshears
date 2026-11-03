@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0 (2026-11-03)
+
+- New providers: Figma (Settings → Security → Connected apps, verified live), Vercel (team integrations, list verified live, removal flow from Vercel's docs) and Slack (workspace installed apps, listed read-only).
+- Recipe engine: link patterns for team-scoped URLs, rows derived from action buttons, open-by-URL revoke flows, workspace subdomains as the same site, sign-in that survives the original tab closing.
+- Sessions: every launch uses the OS keychain consistently (mixing modes loses stored sessions).
+- README: quick start, provider table with verification status, and an invitation to contribute recipes for more services.
+
 ## 0.2.1 (2026-11-03)
 
 - Sign-in no longer navigates your tab: a second tab checks for a session, so identity-provider detours and two-factor or security-key steps are left alone.

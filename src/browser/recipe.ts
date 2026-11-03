@@ -24,8 +24,8 @@ export interface Step {
 }
 
 export interface RowStrategy {
-  /** CSS selector matching one element per connection. */
-  selector: string;
+  /** CSS selector matching one element per connection (not needed with anchorButton). */
+  selector?: string;
   /** CSS selector inside the row holding the display name; the first heading/bold text otherwise. */
   name?: string;
   /** Row attribute to read the name from instead of text (e.g. aria-label). */
@@ -36,6 +36,12 @@ export interface RowStrategy {
   idAttribute?: string;
   /** Rows whose text matches are not connections (headers, empty states). */
   exclude?: RegExp;
+  /**
+   * Derive rows from action buttons instead of a selector: each button whose
+   * accessible name matches marks one row (its widest ancestor holding only
+   * that button). Steps scoped to the row then click that button itself.
+   */
+  anchorButton?: RegExp;
 }
 
 export interface ListPage {
@@ -47,6 +53,8 @@ export interface ListPage {
   openSteps?: Step[];
   /** Strategy A: links whose href starts with this prefix identify one connection each. */
   linkPrefix?: string;
+  /** Strategy A variant: links whose href matches; capture group 1 is the id. For team-scoped URLs. */
+  linkPattern?: RegExp;
   /** Use a slug of the name as id (with -2, -3 for duplicates) when link ids are not stable. */
   idFromName?: boolean;
   /** Strategy B: repeated row elements. */
@@ -58,6 +66,9 @@ export interface ListPage {
 export interface RevokeFlow {
   /** Open this page first; otherwise the flow runs on the list page. */
   detailPath?: (id: string) => string;
+  /** Open the connection's own URL (as listed) first, plus this suffix (e.g. "/settings"). */
+  openUrl?: boolean;
+  urlSuffix?: string;
   /** On the list page, click the connection's row before the steps. */
   clickRow?: boolean;
   steps: Step[];
@@ -73,6 +84,8 @@ export interface WebRecipe {
   signedOutPaths: string[];
   /** Hostnames (other than baseUrl's) that mean "not signed in", e.g. accounts.google.com. */
   signedOutHosts?: string[];
+  /** Hostnames that still count as the site, e.g. workspace subdomains. Defaults to baseUrl's host. */
+  siteHosts?: RegExp;
   /** `<meta name=...>` whose content is the signed-in account name. */
   accountMeta?: string;
   lists: ListPage[];
@@ -114,10 +127,16 @@ function describeUrl(url: string): string {
   }
 }
 
+export function onSite(recipe: WebRecipe, url: string): boolean {
+  const { hostname } = new URL(url);
+  if (recipe.siteHosts) return recipe.siteHosts.test(hostname);
+  return hostname === new URL(recipe.baseUrl).hostname;
+}
+
 export function isSignedOut(recipe: WebRecipe, url: string): boolean {
   const { pathname, hostname } = new URL(url);
   if (recipe.signedOutHosts?.includes(hostname)) return true;
-  if (hostname !== new URL(recipe.baseUrl).hostname) return false;
+  if (!onSite(recipe, url)) return false;
   return recipe.signedOutPaths.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
@@ -136,9 +155,10 @@ async function settle(page: Page): Promise<void> {
 }
 
 async function open(recipe: WebRecipe, page: Page, path: string) {
+  const target = /^https?:\/\//.test(path) ? path : recipe.baseUrl + path;
   for (let attempt = 0; ; attempt += 1) {
     try {
-      await page.goto(recipe.baseUrl + path, { waitUntil: 'domcontentloaded' });
+      await page.goto(target, { waitUntil: 'domcontentloaded' });
       break;
     } catch (error) {
       // A sign-in redirect still in flight aborts our navigation; try once more.
@@ -147,9 +167,7 @@ async function open(recipe: WebRecipe, page: Page, path: string) {
     }
   }
   await settle(page);
-  debug(
-    `open ${describeUrl(recipe.baseUrl + path)} -> ${describeUrl(page.url())}`,
-  );
+  debug(`open ${describeUrl(target)} -> ${describeUrl(page.url())}`);
   assertSignedIn(recipe, page);
 }
 
@@ -209,7 +227,12 @@ export function connectionsFromItems(
   for (const item of items) {
     let id: string;
     let url: string;
-    if (list.linkPrefix && item.href !== undefined) {
+    if (list.linkPattern && item.href !== undefined) {
+      const match = list.linkPattern.exec(item.href);
+      if (!match?.[1] || !ID_PATTERN.test(match[1])) continue;
+      id = match[1];
+      url = joinUrl(recipe.baseUrl, item.href.split(/[?#]/)[0]);
+    } else if (list.linkPrefix && item.href !== undefined) {
       const rest = item.href.slice(list.linkPrefix.length);
       const linkId = rest.split(/[/?#]/)[0];
       // Only the connection page itself; sub-pages such as /permissions/update are not it.
@@ -253,12 +276,20 @@ export function connectionsFromItems(
   return [...seen.values()];
 }
 
-async function collectLinks(page: Page, prefix: string): Promise<ListedItem[]> {
+async function collectLinks(
+  page: Page,
+  match: { prefix?: string; pattern?: string },
+): Promise<ListedItem[]> {
   return page.$$eval(
     'a[href]',
-    (anchors, linkPrefix) => {
-      const idOf = (href: string) =>
-        href.slice(linkPrefix.length).split(/[/?#]/)[0];
+    (anchors, options) => {
+      const pattern = options.pattern ? new RegExp(options.pattern) : undefined;
+      const idOf = (href: string): string | undefined => {
+        if (pattern) return pattern.exec(href)?.[1];
+        if (options.prefix && href.startsWith(options.prefix))
+          return href.slice(options.prefix.length).split(/[/?#]/)[0];
+        return undefined;
+      };
       const clean = (value: string | null | undefined) =>
         (value ?? '')
           .replace(/[ \t]+/g, ' ')
@@ -266,7 +297,7 @@ async function collectLinks(page: Page, prefix: string): Promise<ListedItem[]> {
           .trim();
       return anchors.flatMap((anchor) => {
         const href = anchor.getAttribute('href') ?? '';
-        if (!href.startsWith(linkPrefix)) return [];
+        if (idOf(href) === undefined) return [];
         // The row is the widest ancestor that still links to this one connection only.
         let row: Element = anchor;
         while (
@@ -276,9 +307,8 @@ async function collectLinks(page: Page, prefix: string): Promise<ListedItem[]> {
           const parent = row.parentElement;
           const ids = new Set(
             Array.from(parent.querySelectorAll('a[href]'))
-              .map((link) => link.getAttribute('href') ?? '')
-              .filter((link) => link.startsWith(linkPrefix))
-              .map(idOf),
+              .map((link) => idOf(link.getAttribute('href') ?? ''))
+              .filter((id): id is string => id !== undefined),
           );
           if (ids.size > 1) break;
           row = parent;
@@ -290,20 +320,66 @@ async function collectLinks(page: Page, prefix: string): Promise<ListedItem[]> {
           {
             href,
             text: clean(anchor.textContent),
-            row: clean(row.textContent),
+            // innerText keeps line breaks between blocks, so the name stays on its own line.
+            row: clean((row as HTMLElement).innerText ?? row.textContent),
             nameHint: clean(nameElement?.textContent) || undefined,
           },
         ];
       });
     },
-    prefix,
+    match,
   );
+}
+
+async function collectAnchoredRows(
+  page: Page,
+  anchor: RegExp,
+): Promise<ListedItem[]> {
+  const buttons = page.getByRole('button', { name: anchor });
+  const items = await buttons.evaluateAll((elements, source) => {
+    const matches = (element: Element) =>
+      new RegExp(source, 'i').test(
+        (element.getAttribute('aria-label') || element.textContent || '')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      );
+    const clean = (value: string | null | undefined) =>
+      (value ?? '')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\s*\n\s*/g, '\n')
+        .trim();
+    return elements.map((button) => {
+      let row: Element = button;
+      while (
+        row.parentElement &&
+        !['BODY', 'MAIN', 'HTML'].includes(row.parentElement.tagName)
+      ) {
+        const parent = row.parentElement;
+        const count = Array.from(
+          parent.querySelectorAll('button, [role="button"]'),
+        ).filter(matches).length;
+        if (count > 1) break;
+        row = parent;
+      }
+      const text = clean((row as HTMLElement).innerText ?? row.textContent);
+      // A trailing URL on the name line (Figma shows the app's site) is not part of the name.
+      const name = text
+        .split('\n')[0]
+        .replace(/\s+https?:\/\/\S+$/, '')
+        .trim();
+      return { text: name.slice(0, 80), row: text };
+    });
+  }, anchor.source);
+  return items.filter((item) => item.text);
 }
 
 async function collectRows(
   page: Page,
   rows: RowStrategy,
 ): Promise<ListedItem[]> {
+  if (rows.anchorButton) return collectAnchoredRows(page, rows.anchorButton);
+  if (!rows.selector)
+    throw new Error('Row strategy needs a selector or an anchorButton.');
   const items = await page.$$eval(
     rows.selector,
     (
@@ -369,6 +445,7 @@ async function runSteps(
   page: Page,
   steps: Step[],
   row?: Locator,
+  rowIsButton = false,
 ): Promise<void> {
   for (const step of steps) {
     // The topmost visible dialog is the one a click just opened.
@@ -378,11 +455,16 @@ async function runSteps(
         : step.within === 'row' && row
           ? row
           : page;
-    const control = step.selector
-      ? scope.locator(step.selector).first()
-      : step.role === 'text'
-        ? scope.getByText(step.name ?? /./).last()
-        : scope.getByRole(step.role ?? 'button', { name: step.name }).first();
+    const control =
+      step.within === 'row' && row && rowIsButton
+        ? row
+        : step.selector
+          ? scope.locator(step.selector).first()
+          : step.role === 'text'
+            ? scope.getByText(step.name ?? /./).last()
+            : scope
+                .getByRole(step.role ?? 'button', { name: step.name })
+                .first();
     try {
       await control.click({ timeout: step.optional ? 5_000 : 15_000 });
     } catch (error) {
@@ -415,7 +497,9 @@ async function collect(
   page: Page,
   list: ListPage,
 ): Promise<ListedItem[]> {
-  if (list.linkPrefix) return collectLinks(page, list.linkPrefix);
+  if (list.linkPattern)
+    return collectLinks(page, { pattern: list.linkPattern.source });
+  if (list.linkPrefix) return collectLinks(page, { prefix: list.linkPrefix });
   if (list.rows) return collectRows(page, list.rows);
   throw new Error(`List "${list.label}" of ${recipe.id} declares no strategy.`);
 }
@@ -440,9 +524,14 @@ function rowLocator(
   page: Page,
   list: ListPage,
   connection: Connection,
+  index: number,
 ): Locator {
   const exactName = new RegExp(`^\\s*${escapeRegExp(connection.name)}\\s*$`);
-  if (list.rows) {
+  if (list.rows?.anchorButton)
+    return page
+      .getByRole('button', { name: list.rows.anchorButton })
+      .nth(Math.max(index, 0));
+  if (list.rows?.selector) {
     const { selector, idAttribute, nameAttribute } = list.rows;
     const rows = page.locator(selector);
     const byAttribute = (attribute: string, value: string, exact: boolean) => {
@@ -520,14 +609,14 @@ async function probeSignedIn(
 async function waitForSignIn(
   recipe: WebRecipe,
   browser: BrowserContext,
-  page: Page,
+  initialPage: Page,
   log: (message: string) => void,
-) {
+): Promise<Page> {
+  let page = initialPage;
   await page.goto(recipe.baseUrl + recipe.loginPath, {
     waitUntil: 'domcontentloaded',
   });
   await settle(page);
-  const site = new URL(recipe.baseUrl).hostname;
   const deadline = Date.now() + SIGN_IN_TIMEOUT;
   let announced = false;
   let last = '';
@@ -537,19 +626,25 @@ async function waitForSignIn(
   // second tab checks whether the first list page opens without bouncing to
   // the login page.
   for (;;) {
+    // Some sign-in flows close the original tab (app hand-offs, magic links);
+    // continue with whichever tab is left, or a fresh one.
+    if (page.isClosed())
+      page =
+        browser.pages().find((candidate) => !candidate.isClosed()) ??
+        (await browser.newPage());
     const current = describeUrl(page.url());
     const changed = current !== last;
     if (changed) {
       last = current;
       debug(`sign-in wait: at ${current}`);
     }
-    const onSite =
-      new URL(page.url()).hostname === site && !isSignedOut(recipe, page.url());
-    if (onSite && (changed || Date.now() - lastProbe > 8_000)) {
+    const settled =
+      onSite(recipe, page.url()) && !isSignedOut(recipe, page.url());
+    if (settled && (changed || Date.now() - lastProbe > 8_000)) {
       lastProbe = Date.now();
       if (await probeSignedIn(recipe, browser)) {
         await open(recipe, page, recipe.lists[0].path);
-        return;
+        return page;
       }
     }
     if (!announced) {
@@ -562,7 +657,10 @@ async function waitForSignIn(
       throw new Error(
         `Timed out waiting for the ${recipe.title} sign-in to complete.`,
       );
-    if (page.isClosed() || browser.pages().length === 0)
+    if (
+      page.isClosed() &&
+      browser.pages().every((candidate) => candidate.isClosed())
+    )
       throw new Error(
         `The browser window was closed before the ${recipe.title} sign-in finished. Run the login again and leave the window open; it closes by itself once the session is confirmed.`,
       );
@@ -677,15 +775,32 @@ export class WebProviderSession implements ProviderSession {
     let before: Connection[] = [];
     if (flow.detailPath) {
       await open(this.recipe, this.page, flow.detailPath(connection.id));
+    } else if (flow.openUrl && connection.url) {
+      const { pathname, search } = new URL(connection.url);
+      await open(
+        this.recipe,
+        this.page,
+        pathname + (flow.urlSuffix ?? '') + search,
+      );
     } else {
       before = await listPage(this.recipe, this.page, list);
-      row = rowLocator(this.page, list, connection);
+      row = rowLocator(
+        this.page,
+        list,
+        connection,
+        before.findIndex((item) => item.id === connection.id),
+      );
       if (flow.clickRow) {
         await row.click({ timeout: 15_000 });
         await settle(this.page);
       }
     }
-    await runSteps(this.page, flow.steps, row);
+    await runSteps(
+      this.page,
+      flow.steps,
+      row,
+      Boolean(list.rows?.anchorButton),
+    );
     // Single-page apps send the revoke request after the dialog closes; give it a moment
     // before navigating away, otherwise the request is cancelled.
     await this.page.waitForTimeout(1_000);
@@ -717,6 +832,8 @@ export class WebProviderSession implements ProviderSession {
   }
 
   async close(): Promise<void> {
+    // Give Chrome a moment to flush rotated cookies before the profile closes.
+    await this.page.waitForTimeout(1_500).catch(() => undefined);
     await this.browser.close();
   }
 }
@@ -739,9 +856,9 @@ export function createWebProvider(recipe: WebRecipe): WebProvider {
         env: context.env,
       });
       try {
-        const page = browser.pages()[0] ?? (await browser.newPage());
+        let page = browser.pages()[0] ?? (await browser.newPage());
         if (context.signIn)
-          await waitForSignIn(recipe, browser, page, context.log);
+          page = await waitForSignIn(recipe, browser, page, context.log);
         else await open(recipe, page, recipe.lists[0].path);
         return new WebProviderSession(recipe, browser, page);
       } catch (error) {
