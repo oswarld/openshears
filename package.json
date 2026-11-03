@@ -9,7 +9,8 @@
   "files": [
     "dist",
     "docs",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc",
@@ -32,7 +33,7 @@
     "openclaw",
     "cli"
   ],
-  "author": "",
+  "author": "oswarld <me@oswarld.com>",
   "license": "MIT",
   "engines": {
     "node": ">=20"
@@ -61,5 +62,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/oswarld/openshears.git"
+  },
+  "homepage": "https://github.com/oswarld/openshears#readme",
+  "bugs": {
+    "url": "https://github.com/oswarld/openshears/issues"
   }
 }
